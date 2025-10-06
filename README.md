@@ -12,6 +12,52 @@
 
 IO调度器优化 - 提升磁盘性能
 
+# 彻底清理和重新配置
+'#!/bin/bash
+echo "=========================================="
+echo "🔧 ZRAM彻底清理和重新配置"
+echo "=========================================="
+
+# 1. 停止所有相关服务
+echo "停止服务..."
+systemctl stop zram-manual.service 2>/dev/null
+systemctl stop zramswap.service 2>/dev/null
+systemctl stop zran-manual.service 2>/dev/null
+systemctl stop zranswap.service 2>/dev/null
+
+# 2. 禁用所有相关服务
+echo "禁用服务..."
+systemctl disable zram-manual.service 2>/dev/null
+systemctl disable zramswap.service 2>/dev/null
+systemctl disable zran-manual.service 2>/dev/null
+systemctl disable zranswap.service 2>/dev/null
+
+# 3. 删除所有自定义服务文件
+echo "清理服务文件..."
+rm -f /etc/systemd/system/zram-*.service 2>/dev/null
+rm -f /etc/systemd/system/zran-*.service 2>/dev/null
+
+# 4. 停止所有swap
+echo "停止swap..."
+swapoff -a 2>/dev/null
+sleep 2
+
+# 5. 重新加载systemd
+systemctl daemon-reload
+
+# 6. 检查当前状态
+echo "当前状态:"
+free -h
+echo "Swap设备:"
+swapon --show
+
+echo "=========================================="
+echo "✅ 清理完成"
+echo "=========================================="
+'
+
+
+
 
 # xram-optimize
  脚本特点
