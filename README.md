@@ -12,52 +12,169 @@
 
 IO调度器优化 - 提升磁盘性能
 
-# 彻底清理和重新配置
+#  ZRAM完全清除命令
+1. 完全清除ZRAM配置
 ```
 #!/bin/bash
-echo "=========================================="
-echo "🔧 ZRAM彻底清理和重新配置"
-echo "=========================================="
+echo "=== 完全清除ZRAM配置 ==="
 
-# 1. 停止所有相关服务
-echo "停止服务..."
-systemctl stop zram-manual.service 2>/dev/null
-systemctl stop zramswap.service 2>/dev/null
-systemctl stop zran-manual.service 2>/dev/null
-systemctl stop zranswap.service 2>/dev/null
+# 停止所有ZRAM相关服务
+sudo systemctl stop zram-manual.service 2>/dev/null
+sudo systemctl stop zram-standard.service 2>/dev/null
+sudo systemctl stop zram-optimized.service 2>/dev/null
+sudo systemctl stop zramswap.service 2>/dev/null
+sudo systemctl stop zram-ensure.service 2>/dev/null
+sudo systemctl stop zram-custom.service 2>/dev/null
+sudo systemctl stop zram-smart.service 2>/dev/null
+sudo systemctl stop io-optimize.service 2>/dev/null
 
-# 2. 禁用所有相关服务
-echo "禁用服务..."
-systemctl disable zram-manual.service 2>/dev/null
-systemctl disable zramswap.service 2>/dev/null
-systemctl disable zran-manual.service 2>/dev/null
-systemctl disable zranswap.service 2>/dev/null
+# 禁用所有ZRAM相关服务
+sudo systemctl disable zram-manual.service 2>/dev/null
+sudo systemctl disable zram-standard.service 2>/dev/null
+sudo systemctl disable zram-optimized.service 2>/dev/null
+sudo systemctl disable zramswap.service 2>/dev/null
+sudo systemctl disable zram-ensure.service 2>/dev/null
+sudo systemctl disable zram-custom.service 2>/dev/null
+sudo systemctl disable zram-smart.service 2>/dev/null
+sudo systemctl disable io-optimize.service 2>/dev/null
 
-# 3. 删除所有自定义服务文件
-echo "清理服务文件..."
-rm -f /etc/systemd/system/zram-*.service 2>/dev/null
-rm -f /etc/systemd/system/zran-*.service 2>/dev/null
+# 删除所有服务文件
+sudo rm -f /etc/systemd/system/zram-*.service 2>/dev/null
+sudo rm -f /etc/systemd/system/io-optimize.service 2>/dev/null
 
-# 4. 停止所有swap
-echo "停止swap..."
-swapoff -a 2>/dev/null
-sleep 2
+# 删除所有脚本文件
+sudo rm -f /usr/local/bin/zram-*.sh 2>/dev/null
+sudo rm -f /usr/local/bin/xram-*.sh 2>/dev/null
+sudo rm -f /usr/local/bin/check-zram.sh 2>/dev/null
+sudo rm -f /root/zram-usage.txt 2>/dev/null
+sudo rm -f /root/test-zram.sh 2>/dev/null
 
-# 5. 重新加载systemd
-systemctl daemon-reload
+# 停止所有ZRAM交换
+sudo swapoff /dev/zram0 2>/dev/null
+sudo swapoff /dev/xram0 2>/dev/null
+sudo swapoff -a 2>/dev/null
 
-# 6. 检查当前状态
-echo "当前状态:"
+# 移除ZRAM模块
+sudo modprobe -r zram 2>/dev/null
+sudo modprobe -r xram 2>/dev/null
+
+# 重新加载systemd
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+
+# 恢复默认IO调度器
+echo 'mq-deadline' | sudo tee /sys/block/sda/queue/scheduler 2>/dev/null
+
+echo "✅ ZRAM配置已完全清除"
+echo "当前内存状态:"
 free -h
-echo "Swap设备:"
-swapon --show
+```
+2. 一键清除命令
+```
+# 单行命令执行清除
+sudo systemctl stop zram-manual.service zram-standard.service zram-optimized.service zramswap.service zram-ensure.service zram-custom.service zram-smart.service io-optimize.service 2>/dev/null; \
+sudo systemctl disable zram-manual.service zram-standard.service zram-optimized.service zramswap.service zram-ensure.service zram-custom.service zram-smart.service io-optimize.service 2>/dev/null; \
+sudo rm -f /etc/systemd/system/zram-*.service /etc/systemd/system/io-optimize.service 2>/dev/null; \
+sudo rm -f /usr/local/bin/zram-*.sh /usr/local/bin/xram-*.sh /usr/local/bin/check-zram.sh 2>/dev/null; \
+sudo rm -f /root/zram-usage.txt /root/test-zram.sh 2>/dev/null; \
+sudo swapoff /dev/zram0 /dev/xram0 2>/dev/null; sudo swapoff -a; \
+sudo modprobe -r zram xram 2>/dev/null; \
+sudo systemctl daemon-reload; sudo systemctl reset-failed; \
+echo 'mq-deadline' | sudo tee /sys/block/sda/queue/scheduler 2>/dev/null; \
+echo "✅ ZRAM完全清除完成"; free -h
+```
+3. 选择性清除
+只清除服务和交换（保留配置）：
+```
+sudo systemctl stop zram-manual.service zram-standard.service zram-optimized.service zramswap.service
+sudo systemctl disable zram-manual.service zram-standard.service zram-optimized.service zramswap.service
+sudo swapoff /dev/zram0 2>/dev/null
+sudo swapoff -a
+sudo systemctl daemon-reload
+free -h
+```
+只删除服务文件：
+```
+sudo rm -f /etc/systemd/system/zram-*.service
+sudo systemctl daemon-reload
+```
+只停止ZRAM交换：
+```
+sudo swapoff /dev/zram0 2>/dev/null
+echo "ZRAM交换已停止:"
+free -h
+```
+4. 卸载zram-tools包
+```
+# 完全卸载zram-tools
+sudo apt remove --purge -y zram-tools
+sudo apt autoremove -y
 
-echo "=========================================="
-echo "✅ 清理完成"
-echo "=========================================="
+# 清理配置
+sudo rm -f /etc/default/zramswap
+sudo rm -f /etc/modules-load.d/zram.conf 2>/dev/null
+
+```
+5. 清除内核参数优化
+
+```
+# 移除ZRAM相关的内核参数
+sudo sed -i '/# ZRAM优化参数/,/net.ipv4.tcp_wmem=4096 65536 67108864/d' /etc/sysctl.conf
+sudo sed -i '/# XRAM优化参数/,/vm.dirty_expire_centisecs=3000/d' /etc/sysctl.conf
+sudo sed -i '/vm.swappiness=10/d' /etc/sysctl.conf
+sudo sed -i '/vm.vfs_cache_pressure=50/d' /etc/sysctl.conf
+
+# 重新加载sysctl
+sudo sysctl -p
+
+```
+6. 验证清除结果
+```
+echo "=== 清除验证 ==="
+echo "1. 服务状态:"
+systemctl list-unit-files | grep -E "(zram|xram|io-optimize)"
+echo "2. 脚本文件:"
+ls -la /usr/local/bin/*ram*.sh 2>/dev/null || echo "无脚本文件"
+echo "3. 内存状态:"
+free -h
+echo "4. Swap设备:"
+swapon --show
+echo "5. 模块状态:"
+lsmod | grep -E "(zram|xram)" || echo "无ZRAM/XRAM模块"
+echo "6. 设备文件:"
+ls -la /dev/zram* /dev/xram* 2>/dev/null || echo "无ZRAM/XRAM设备"
+```
+7. 重启验证
+```
+# 重启系统确认清除效果
+sudo reboot
+
+# 重启后检查
+free -h
+swapon --show
+systemctl list-unit-files | grep zram
+
 ```
 
+ 📋 注意事项
+清除前确认：确保不需要ZRAM功能再执行清除
+
+数据安全：清除不会影响已有数据，只移除交换功能
+
+重启建议：清除后建议重启确保完全恢复
+
+保留配置：如果以后还想用ZRAM，建议只停止服务而不是完全清除
+
+执行这些命令后，你的系统将完全恢复到安装ZRAM优化之前的状态！
+
+
+
+
 ============================================================================================
+============================================================================================
+
+
+
 # xram-optimize
  脚本特点
 这个脚本解决了我们讨论的所有问题：
