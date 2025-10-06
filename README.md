@@ -1,4 +1,4 @@
-# ZRAMm-optimize
+# zram-standard
 
 ✅ 这个脚本的特点
 完全使用标准ZRAM - 不再使用xram
