@@ -1,3 +1,12 @@
+zram-standard一键命令：
+```
+bash <(curl -sL https://raw.githubusercontent.com/ldg118/xram-zram/refs/heads/main/zram-standard.sh)
+```
+xram-complete一键命令：
+```
+bash <(curl -sL https://raw.githubusercontent.com/ldg118/xram-zram/refs/heads/main/xram-complete.sh)
+```
+
 # zram-standard
 
 ✅ 这个脚本的特点
