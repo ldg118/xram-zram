@@ -176,7 +176,7 @@ systemctl list-unit-files | grep zram
 
 
 
-# xram-optimize
+# xram-complete
 
  脚本特点
 这个脚本解决了我们讨论的所有问题：
