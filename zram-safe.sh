@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "=========================================="
-echo "🔧 安全版ZRAM优化脚本 (无IO修改)"
+echo "🔧 ZRAM自动修复脚本"
 echo "=========================================="
 
 # 颜色定义
@@ -19,154 +19,128 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 1. 清理旧配置（安全方式）
-info "清理旧配置..."
-{
-    systemctl stop zram-manual.service 2>/dev/null
-    systemctl stop zram-fixed.service 2>/dev/null
-    systemctl stop zram-optimized.service 2>/dev/null
-    systemctl stop io-optimize.service 2>/dev/null
-    systemctl disable zram-manual.service 2>/dev/null
-    systemctl disable zram-fixed.service 2>/dev/null
-    systemctl disable zram-optimized.service 2>/dev/null
-    systemctl disable io-optimize.service 2>/dev/null
-    rm -f /etc/systemd/system/zram-*.service 2>/dev/null
-    rm -f /etc/systemd/system/io-optimize.service 2>/dev/null
-    swapoff -a 2>/dev/null
-    true
-}
-
-# 2. 系统状态检查
-info "检查系统状态..."
+# 1. 诊断当前状态
+info "诊断系统状态..."
 echo "------------------------------------------"
+echo "当前内存:"
 free -h
-echo "负载: $(cat /proc/loadavg | awk '{print $1}')"
-echo "当前IO调度器: $(cat /sys/block/sda/queue/scheduler)"
 echo "------------------------------------------"
+echo "ZRAM设备状态:"
+ls -la /dev/zram* 2>/dev/null || echo "无ZRAM设备"
+ls -la /sys/block/zram* 2>/dev/null || echo "无ZRAM配置"
+echo "------------------------------------------"
+echo "zram-tools服务状态:"
+systemctl status zramswap.service --no-pager -l 2>/dev/null | head -10 || echo "zramswap服务未运行"
 
-# 3. 安装zram-tools（可选）
-info "安装zram-tools..."
-apt update >/dev/null 2>&1
-if apt install -y zram-tools >/dev/null 2>&1; then
-    info "zram-tools安装成功"
+# 2. 停止所有ZRAM相关服务
+info "停止ZRAM服务..."
+systemctl stop zramswap.service 2>/dev/null
+systemctl stop zram-safe.service 2>/dev/null
+swapoff -a 2>/dev/null
+sleep 3
+
+# 3. 重新配置zram-tools
+info "重新配置zram-tools..."
+
+# 检查zram-tools配置
+if [ -f "/etc/default/zramswap" ]; then
+    info "备份原配置..."
+    cp /etc/default/zramswap /etc/default/zramswap.backup
+    
+    info "修改zram-tools配置为1.5G..."
+    sed -i 's/^#*PERCENT=.*/PERCENT=150/' /etc/default/zramswap
+    sed -i 's/^#*SIZE=.*/SIZE=1536M/' /etc/default/zramswap
+    sed -i 's/^#*ALGO=.*/ALGO=lz4/' /etc/default/zramswap
+    
+    echo "当前zram-tools配置:"
+    cat /etc/default/zramswap | grep -v "^#" | grep -v "^$"
 else
-    warn "zram-tools安装跳过，使用手动配置"
+    warn "未找到zram-tools配置，创建新配置..."
+    cat > /etc/default/zramswap << 'EOF'
+# ZRAM configuration
+ALGO=lz4
+PERCENT=150
+SIZE=1536M
+PRIORITY=100
+EOF
 fi
 
-# 4. 配置ZRAM（1.5G推荐大小）
-info "配置ZRAM..."
+# 4. 重启zram-tools服务
+info "启动zram-tools服务..."
+systemctl daemon-reload
+systemctl enable zramswap.service
+systemctl start zramswap.service
 
-# 停止现有swap
-swapoff -a 2>/dev/null
-sleep 2
+sleep 5
 
-# 加载模块
-modprobe zram 2>/dev/null || {
-    error "无法加载zram模块"
-    exit 1
-}
+# 5. 验证配置
+info "验证ZRAM状态..."
+echo "------------------------------------------"
+echo "服务状态:"
+systemctl status zramswap.service --no-pager -l | head -10
+echo "------------------------------------------"
+echo "内存状态:"
+free -h
+echo "------------------------------------------"
+echo "Swap设备:"
+swapon --show
+echo "------------------------------------------"
 
-# 配置参数
-echo "lz4" > /sys/block/zram0/comp_algorithm 2>/dev/null || warn "压缩算法使用默认值"
-echo "1536M" > /sys/block/zram0/disksize 2>/dev/null || {
-    error "无法设置ZRAM大小"
-    exit 1
-}
+# 6. 如果zram-tools失败，使用备用方案
+if ! swapon --show | grep -q zram; then
+    warn "zram-tools启动失败，使用手动配置..."
+    
+    # 手动配置
+    swapoff -a
+    modprobe -r zram 2>/dev/null
+    modprobe zram
+    sleep 2
+    
+    # 检查设备
+    if [ -d "/sys/block/zram0" ]; then
+        echo "lz4" > /sys/block/zram0/comp_algorithm
+        echo "1536M" > /sys/block/zram0/disksize
+        mkswap /dev/zram0
+        swapon /dev/zram0
+        
+        info "手动配置完成"
+        free -h
+        swapon --show
+    else
+        error "无法创建ZRAM设备"
+    fi
+fi
 
-# 启用ZRAM
-mkswap /dev/zram0 >/dev/null 2>&1
-swapon /dev/zram0 || {
-    error "ZRAM启用失败"
-    exit 1
-}
-
-# 5. 创建安全的Systemd服务
-info "创建Systemd服务..."
-cat > /etc/systemd/system/zram-safe.service << 'EOF'
-[Unit]
-Description=Safe ZRAM Configuration
-After=multi-user.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStartPre=/bin/sleep 10
-ExecStart=/sbin/modprobe zram
-ExecStart=/bin/bash -c 'echo lz4 > /sys/block/zram0/comp_algorithm'
-ExecStart=/bin/bash -c 'echo 1536M > /sys/block/zram0/disksize'
-ExecStart=/sbin/mkswap /dev/zram0
-ExecStart=/sbin/swapon /dev/zram0
-ExecStop=/sbin/swapoff /dev/zram0
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 6. 仅优化内存相关参数
+# 7. 优化内存参数
 info "优化内存参数..."
 if ! grep -q "vm.swappiness=15" /etc/sysctl.conf; then
     cat >> /etc/sysctl.conf << 'EOF'
 
-# ZRAM内存优化参数
+# ZRAM内存优化
 vm.swappiness=15
 vm.vfs_cache_pressure=50
-vm.dirty_background_ratio=5
-vm.dirty_ratio=10
 EOF
-    info "内存参数已添加"
+    sysctl -p >/dev/null 2>&1
+    info "内存参数已优化"
+fi
+
+# 8. 最终状态报告
+echo "=========================================="
+info "✅ ZRAM修复完成！"
+echo "=========================================="
+echo "📊 最终状态报告:"
+echo "------------------------------------------"
+echo "内存: $(free -h | grep Mem | awk '{print $3"/"$2}')"
+echo "Swap: $(free -h | grep Swap | awk '{print $2}')"
+echo "ZRAM设备: $(swapon --show | grep zram | wc -l) 个"
+echo "负载: $(cat /proc/loadavg | awk '{print $1}')"
+echo "------------------------------------------"
+
+if swapon --show | grep -q zram; then
+    info "🎯 ZRAM配置成功！"
+    echo "重启测试: sudo reboot"
 else
-    info "内存参数已存在"
+    error "❌ ZRAM配置失败"
+    echo "请检查系统日志: journalctl -u zramswap.service"
 fi
-
-# 7. 启用服务
-info "启用系统服务..."
-systemctl daemon-reload
-systemctl enable zram-safe.service
-systemctl start zram-safe.service
-
-# 8. 应用参数
-sysctl -p >/dev/null 2>&1
-
-# 9. 最终验证
-echo "=========================================="
-info "✅ 安全版ZRAM配置完成！"
-echo "=========================================="
-echo "📊 系统状态："
-echo "------------------------------------------"
-swapon --show
-echo "------------------------------------------"
-free -h
-echo "------------------------------------------"
-echo "ZRAM设备信息："
-if [ -f "/sys/block/zram0/disksize" ]; then
-    echo "大小: $(cat /sys/block/zram0/disksize) bytes"
-fi
-if [ -f "/sys/block/zram0/comp_algorithm" ]; then
-    echo "压缩算法: $(cat /sys/block/zram0/comp_algorithm)"
-fi
-echo "------------------------------------------"
-echo "IO调度器状态: $(cat /sys/block/sda/queue/scheduler | sed 's/.*\[\([^]]*\)\].*/\1/')"
-echo "------------------------------------------"
-echo "服务状态："
-systemctl status zram-safe.service --no-pager -l | head -6
-echo "=========================================="
-echo "🔧 重启测试: sudo reboot"
-echo "=========================================="
-
-# 10. 创建健康检查脚本
-cat > /usr/local/bin/check-system.sh << 'EOF'
-#!/bin/bash
-echo "=== 系统健康检查 ==="
-echo "时间: $(date)"
-echo "内存: $(free -h | grep Mem | awk '{print $3"/"$2" ("$3/$2*100"%)"}')"
-echo "ZRAM: $(swapon --show | grep zram0 | awk '{print $3"/"$4}')"
-echo "负载: $(cat /proc/loadavg)"
-echo "IO调度器: $(cat /sys/block/sda/queue/scheduler | sed 's/.*\[\([^]]*\)\].*/\1/')"
-echo "进程数: $(ps aux | wc -l)"
-EOF
-chmod +x /usr/local/bin/check-system.sh
-
-info "健康检查脚本: /usr/local/bin/check-system.sh"
-echo "=========================================="
-info "🎯 配置完成！此脚本不会修改IO调度器。"
 echo "=========================================="
