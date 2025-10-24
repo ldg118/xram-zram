@@ -2,6 +2,10 @@ ZRAM-standard一键命令：
 ```
 bash <(curl -sL https://raw.githubusercontent.com/ldg118/xram-zram/refs/heads/main/zram-standard.sh)
 ```
+zram-safe.sh一键命令不修改IO性能：
+```
+bash <(curl -sL https://raw.githubusercontent.com/ldg118/xram-zram/refs/heads/main/zram-safe.sh)
+```
 XRAM-complete一键命令：
 ```
 bash <(curl -sL https://raw.githubusercontent.com/ldg118/xram-zram/refs/heads/main/xram-complete.sh)
